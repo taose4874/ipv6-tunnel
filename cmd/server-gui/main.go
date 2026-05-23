@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -243,7 +244,7 @@ func (s *ServerState) handleControl(conn net.Conn) {
 	}
 }
 
-// findPortInRange finds an available TCP port within the configured range.
+// findPortInRange finds an available TCP port randomly within the configured range.
 func (s *ServerState) findPortInRange() (int, error) {
 	var minPort, maxPort int
 	fmt.Sscanf(s.portMinEntry.Text, "%d", &minPort)
@@ -251,7 +252,10 @@ func (s *ServerState) findPortInRange() (int, error) {
 	if minPort <= 0 || maxPort <= 0 || minPort > maxPort {
 		return 0, fmt.Errorf("端口范围无效: %s-%s", s.portMinEntry.Text, s.portMaxEntry.Text)
 	}
-	for port := minPort; port <= maxPort; port++ {
+	rng := maxPort - minPort + 1
+	start := minPort + rand.Intn(rng)
+	for i := 0; i < rng; i++ {
+		port := minPort + (start - minPort + i) % rng
 		ln, err := net.Listen("tcp", fmt.Sprintf("[::]:%d", port))
 		if err == nil {
 			ln.Close()
@@ -486,12 +490,12 @@ func main() {
 	state.portEntry.SetText("8888")
 
 	state.portMinEntry = widget.NewEntry()
-	state.portMinEntry.SetPlaceHolder("最小")
 	state.portMinEntry.SetText("20000")
+	state.portMinEntry.Wrapping = fyne.TextWrapOff
 
 	state.portMaxEntry = widget.NewEntry()
-	state.portMaxEntry.SetPlaceHolder("最大")
 	state.portMaxEntry.SetText("30000")
+	state.portMaxEntry.Wrapping = fyne.TextWrapOff
 
 	state.actionBtn = widget.NewButton("启动服务", func() { state.toggleAction() })
 	state.actionBtn.Importance = widget.HighImportance
@@ -534,7 +538,7 @@ func main() {
 		state.actionBtn,
 		widget.NewForm(
 			widget.NewFormItem("端口", state.portEntry),
-			widget.NewFormItem("公网端口范围", container.NewHBox(
+			widget.NewFormItem("端口范围", container.NewHBox(
 				state.portMinEntry,
 				widget.NewLabel("  —  "),
 				state.portMaxEntry,
