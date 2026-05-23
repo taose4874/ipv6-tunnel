@@ -24,6 +24,7 @@ var (
 	colorGray  = color.NRGBA{R: 0x9E, G: 0x9E, B: 0x9E, A: 0xFF}
 )
 
+// tunnelInfo represents a registered tunnel with its public listener and connections.
 type tunnelInfo struct {
 	ID        string
 	LocalHost string
@@ -32,7 +33,7 @@ type tunnelInfo struct {
 	CtrlConn  net.Conn
 	PubLn     net.Listener
 	mu        sync.Mutex
-	Conns     map[string]net.Conn
+	Conns     map[string]net.Conn // connID -> external connection
 }
 
 type userEntry struct {
@@ -42,7 +43,7 @@ type userEntry struct {
 }
 
 type ServerState struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex // protects running, tunnels, and userData
 	running   bool
 	controlLn net.Listener
 	dataLn    net.Listener
@@ -65,13 +66,36 @@ var state = &ServerState{
 	userData: make([]userEntry, 0),
 }
 
-func (s *ServerState) addLog(msg string) {
+// uiAddLog safely appends log text from any goroutine (uses fyne.Do for thread safety).
+func (s *ServerState) uiAddLog(msg string) {
 	t := time.Now().Format("15:04:05")
 	prev := s.logEntry.Text
 	if len(prev) > 20000 {
 		prev = prev[len(prev)-10000:]
 	}
 	s.logEntry.SetText(prev + fmt.Sprintf("[%s] %s\n", t, msg))
+}
+
+// updateStatusRunning sets UI to running state. Must be called from main thread or fyne.Do.
+func (s *ServerState) updateStatusRunning(ctrlPort int) {
+	s.statusDot.FillColor = colorGreen
+	s.statusDot.Refresh()
+	s.statusLbl.SetText("运行中")
+	s.addrLbl.SetText(fmt.Sprintf("[::]:%d (数据端口 %d)", ctrlPort, ctrlPort+1))
+	s.actionBtn.SetText("停止服务")
+	s.actionBtn.Importance = widget.DangerImportance
+	s.portEntry.Disable()
+}
+
+// updateStatusStopped sets UI to stopped state.
+func (s *ServerState) updateStatusStopped() {
+	s.statusDot.FillColor = colorGray
+	s.statusDot.Refresh()
+	s.statusLbl.SetText("已停止")
+	s.addrLbl.SetText("")
+	s.actionBtn.SetText("启动服务")
+	s.actionBtn.Importance = widget.HighImportance
+	s.portEntry.Enable()
 }
 
 func (s *ServerState) start() error {
@@ -90,6 +114,7 @@ func (s *ServerState) start() error {
 	}
 
 	var err error
+	// Listen on all interfaces for both IPv4 and IPv6
 	s.controlLn, err = net.Listen("tcp", fmt.Sprintf("[::]:%d", ctrlPort))
 	if err != nil {
 		return fmt.Errorf("监听控制端口失败: %v", err)
@@ -102,8 +127,11 @@ func (s *ServerState) start() error {
 		return fmt.Errorf("监听数据端口 %d 失败: %v", dataPort, err)
 	}
 
+	s.mu.Lock()
 	s.running = true
+	s.mu.Unlock()
 
+	// Data connection accept loop
 	go func() {
 		for {
 			conn, err := s.dataLn.Accept()
@@ -114,6 +142,7 @@ func (s *ServerState) start() error {
 		}
 	}()
 
+	// Control connection accept loop
 	go func() {
 		for {
 			conn, err := s.controlLn.Accept()
@@ -129,40 +158,63 @@ func (s *ServerState) start() error {
 
 func (s *ServerState) stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.running {
+		s.mu.Unlock()
 		return
 	}
 	s.running = false
+
+	// Close listeners first to stop accepting new connections
 	if s.controlLn != nil {
 		s.controlLn.Close()
+		s.controlLn = nil
 	}
 	if s.dataLn != nil {
 		s.dataLn.Close()
+		s.dataLn = nil
 	}
+
+	// Close all tunnels
 	for _, t := range s.tunnels {
-		t.PubLn.Close()
+		if t.PubLn != nil {
+			t.PubLn.Close()
+		}
 		t.mu.Lock()
 		for _, c := range t.Conns {
 			c.Close()
 		}
+		t.Conns = make(map[string]net.Conn)
 		t.mu.Unlock()
 	}
 	s.tunnels = make(map[string]*tunnelInfo)
+	s.userData = make([]userEntry, 0)
+	s.mu.Unlock()
+
+	if s.userList != nil {
+		s.userList.Refresh()
+	}
+	if s.userCnt != nil {
+		s.userCnt.SetText("共 0 个连接")
+	}
 }
 
 func (s *ServerState) handleControl(conn net.Conn) {
 	defer conn.Close()
-	s.addLog(fmt.Sprintf("客户端连接: %s", conn.RemoteAddr()))
+
+	s.uiAddLog(fmt.Sprintf("客户端连接: %s", conn.RemoteAddr()))
 
 	for {
+		// Set read deadline to detect stale connections (90s = 3 ping intervals)
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+
 		msg, err := common.ReadMsg(conn)
 		if err != nil {
-			s.addLog(fmt.Sprintf("客户端断开: %s", conn.RemoteAddr()))
+			s.uiAddLog(fmt.Sprintf("客户端断开: %s", conn.RemoteAddr()))
 			s.removeClientTunnels(conn)
 			s.refreshUserList()
 			return
 		}
+
 		switch msg.Type {
 		case common.MsgRegister:
 			s.handleRegister(conn, msg)
@@ -173,6 +225,7 @@ func (s *ServerState) handleControl(conn net.Conn) {
 }
 
 func (s *ServerState) handleRegister(ctrlConn net.Conn, msg *common.Message) {
+	// Allocate a random public port
 	pubLn, err := net.Listen("tcp", "[::]:0")
 	if err != nil {
 		common.WriteMsg(ctrlConn, &common.Message{Type: common.MsgError, Error: "分配公网端口失败"})
@@ -199,19 +252,22 @@ func (s *ServerState) handleRegister(ctrlConn net.Conn, msg *common.Message) {
 		TunnelID: msg.TunnelID,
 		PubPort:  pubPort,
 	})
-	s.addLog(fmt.Sprintf("隧道注册: %s → 公网:%d (内网 %s:%d)", msg.TunnelID, pubPort, msg.LocalHost, msg.LocalPort))
+	s.uiAddLog(fmt.Sprintf("隧道注册: %s → 公网:%d (内网 %s:%d)", msg.TunnelID, pubPort, msg.LocalHost, msg.LocalPort))
 
 	go s.acceptPublic(t)
 }
 
 func (s *ServerState) acceptPublic(t *tunnelInfo) {
 	defer t.PubLn.Close()
+
 	for {
 		extConn, err := t.PubLn.Accept()
 		if err != nil {
 			return
 		}
+
 		connID := fmt.Sprintf("%d", time.Now().UnixNano())
+
 		t.mu.Lock()
 		t.Conns[connID] = extConn
 		t.mu.Unlock()
@@ -221,26 +277,33 @@ func (s *ServerState) acceptPublic(t *tunnelInfo) {
 			TunnelID: t.ID,
 			ConnID:   connID,
 		})
-		s.addLog(fmt.Sprintf("新连接: %s → 隧道 %s", extConn.RemoteAddr(), t.ID))
+		s.uiAddLog(fmt.Sprintf("新连接: %s → 隧道 %s", extConn.RemoteAddr(), t.ID))
 		s.refreshUserList()
 	}
 }
 
 func (s *ServerState) handleDataConn(conn net.Conn) {
+	// Set a read deadline for the initial handshake
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
 	msg, err := common.ReadMsg(conn)
 	if err != nil || msg.Type != common.MsgConnReady {
 		conn.Close()
 		return
 	}
 
-	s.mu.Lock()
+	conn.SetReadDeadline(time.Time{}) // clear deadline for data transfer
+
+	// Look up tunnel with read lock
+	s.mu.RLock()
 	t, ok := s.tunnels[msg.TunnelID]
-	s.mu.Unlock()
+	s.mu.RUnlock()
 	if !ok {
 		conn.Close()
 		return
 	}
 
+	// Look up external connection
 	t.mu.Lock()
 	extConn, ok := t.Conns[msg.ConnID]
 	t.mu.Unlock()
@@ -249,12 +312,18 @@ func (s *ServerState) handleDataConn(conn net.Conn) {
 		return
 	}
 
+	// Cleanup callback
 	cleanup := func() {
 		t.mu.Lock()
-		delete(t.Conns, msg.ConnID)
+		if c, ok := t.Conns[msg.ConnID]; ok {
+			c.Close()
+			delete(t.Conns, msg.ConnID)
+		}
 		t.mu.Unlock()
 		s.refreshUserList()
 	}
+
+	// Bidirectional copy with cleanup
 	done := make(chan struct{}, 2)
 	go func() { io.Copy(conn, extConn); done <- struct{}{} }()
 	go func() { io.Copy(extConn, conn); done <- struct{}{} }()
@@ -267,28 +336,37 @@ func (s *ServerState) handleDataConn(conn net.Conn) {
 	}()
 }
 
+// removeClientTunnels removes all tunnels owned by a disconnected client and cleans up resources.
 func (s *ServerState) removeClientTunnels(ctrlConn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	for id, t := range s.tunnels {
 		if t.CtrlConn == ctrlConn {
-			t.PubLn.Close()
+			// Close public listener first (stops new incoming connections)
+			if t.PubLn != nil {
+				t.PubLn.Close()
+			}
+			// Close all active connections for this tunnel
 			t.mu.Lock()
-			for _, c := range t.Conns {
+			for connID, c := range t.Conns {
 				c.Close()
+				delete(t.Conns, connID)
 			}
 			t.mu.Unlock()
 			delete(s.tunnels, id)
-			s.addLog(fmt.Sprintf("隧道已移除: %s", id))
+			s.uiAddLog(fmt.Sprintf("隧道已移除: %s", id))
 		}
 	}
 }
 
 func (s *ServerState) refreshUserList() {
-	s.mu.Lock()
+	// Collect data under lock, then update UI on main thread
+	s.mu.RLock()
 	var entries []userEntry
+
 	for _, t := range s.tunnels {
-		// 显示控制连接（客户端地址）
+		// Add control connection entry
 		ctrlAddr := t.CtrlConn.RemoteAddr().String()
 		host, _, err := net.SplitHostPort(ctrlAddr)
 		if err == nil {
@@ -307,7 +385,7 @@ func (s *ServerState) refreshUserList() {
 			ConnID: t.ID,
 		})
 
-		// 显示每个转发连接的远端地址
+		// Add per-connection entries
 		t.mu.Lock()
 		for id, conn := range t.Conns {
 			addr := conn.RemoteAddr().String()
@@ -330,8 +408,11 @@ func (s *ServerState) refreshUserList() {
 		}
 		t.mu.Unlock()
 	}
+
 	s.userData = entries
-	s.mu.Unlock()
+	s.mu.RUnlock()
+
+	// UI updates
 	if s.userList != nil {
 		s.userList.Refresh()
 	}
@@ -343,34 +424,23 @@ func (s *ServerState) refreshUserList() {
 func (s *ServerState) toggleAction() {
 	if s.running {
 		s.stop()
-		s.refreshUserList()
-		s.statusDot.FillColor = colorGray
-		s.statusDot.Refresh()
-		s.statusLbl.SetText("已停止")
-		s.addrLbl.SetText("")
-		s.actionBtn.SetText("启动服务")
-		s.actionBtn.Importance = widget.HighImportance
-		s.portEntry.Enable()
-		s.addLog("服务已停止")
+		s.uiAddLog("服务已停止")
+		s.updateStatusStopped()
 	} else {
 		if err := s.start(); err != nil {
 			dialog.ShowError(err, s.win)
 			return
 		}
+
 		portStr := s.portEntry.Text
 		var ctrlPort int
 		fmt.Sscanf(portStr, "%d", &ctrlPort)
 		if ctrlPort == 0 {
 			ctrlPort = 8888
 		}
-		s.statusDot.FillColor = colorGreen
-		s.statusDot.Refresh()
-		s.statusLbl.SetText("运行中")
-		s.addrLbl.SetText(fmt.Sprintf("[::]:%d (数据端口 %d)", ctrlPort, ctrlPort+1))
-		s.actionBtn.SetText("停止服务")
-		s.actionBtn.Importance = widget.DangerImportance
-		s.portEntry.Disable()
-		s.addLog(fmt.Sprintf("服务已启动 (控制端口 %d, 数据端口 %d)", ctrlPort, ctrlPort+1))
+
+		s.updateStatusRunning(ctrlPort)
+		s.uiAddLog(fmt.Sprintf("服务已启动 (控制端口 %d, 数据端口 %d)", ctrlPort, ctrlPort+1))
 	}
 }
 
@@ -481,11 +551,15 @@ func main() {
 
 	w.SetOnClosed(func() { state.stop() })
 
+	// Periodic user list refresh (screen refresh only, no data modification)
 	go func() {
 		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if state.running {
+			state.mu.RLock()
+			r := state.running
+			state.mu.RUnlock()
+			if r {
 				state.refreshUserList()
 			}
 		}
