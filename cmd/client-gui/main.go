@@ -144,7 +144,7 @@ func (s *ClientState) connect() error {
 // Returns error without touching UI.
 func (s *ClientState) doConnect() error {
 	s.mu.Lock()
-	serverAddr := fmt.Sprintf("%s:%s", s.serverAddr, s.serverPort)
+	serverAddr := net.JoinHostPort(s.serverAddr, s.serverPort)
 	localStr := s.localPortStr
 	s.mu.Unlock()
 
