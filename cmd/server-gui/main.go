@@ -490,10 +490,12 @@ func main() {
 	state.portEntry.SetText("8888")
 
 	state.portMinEntry = widget.NewEntry()
+	state.portMinEntry.SetPlaceHolder("20000")
 	state.portMinEntry.SetText("20000")
 	state.portMinEntry.Wrapping = fyne.TextWrapOff
 
 	state.portMaxEntry = widget.NewEntry()
+	state.portMaxEntry.SetPlaceHolder("30000")
 	state.portMaxEntry.SetText("30000")
 	state.portMaxEntry.Wrapping = fyne.TextWrapOff
 
@@ -538,9 +540,9 @@ func main() {
 		state.actionBtn,
 		widget.NewForm(
 			widget.NewFormItem("端口", state.portEntry),
-			widget.NewFormItem("端口范围", container.NewHBox(
+			widget.NewFormItem("端口范围", container.NewGridWithColumns(3,
 				state.portMinEntry,
-				widget.NewLabel("  —  "),
+				widget.NewLabel("—"),
 				state.portMaxEntry,
 			)),
 		),
