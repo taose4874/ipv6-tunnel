@@ -1,0 +1,21 @@
+# Binaries
+*.exe
+*.exe~
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/temp/
+/output/
+
+# Go
+*.test
+*.out
