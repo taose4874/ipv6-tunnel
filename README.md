@@ -67,9 +67,7 @@ go build -ldflags="-H windowsgui" -o Client-GUI.exe
 intranet-pen/
 ├── cmd/
 │   ├── server-gui/     # 服务端 GUI
-│   ├── client-gui/     # 客户端 GUI
-│   ├── server/         # 服务端 CLI（备用）
-│   └── client/         # 客户端 CLI（备用）
+│   └── client-gui/     # 客户端 GUI
 ├── pkg/common/         # 公共协议定义
 └── README.md
 ```
