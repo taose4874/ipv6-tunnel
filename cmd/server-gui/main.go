@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,9 +54,11 @@ type ServerState struct {
 	statusDot  *canvas.Circle
 	statusLbl  *widget.Label
 	addrLbl    *widget.Label
-	actionBtn  *widget.Button
-	portEntry  *widget.Entry
-	userList   *widget.List
+	actionBtn   *widget.Button
+	portEntry   *widget.Entry
+	portMinEntry *widget.Entry
+	portMaxEntry *widget.Entry
+	userList    *widget.List
 	userData   []userEntry
 	logEntry   *widget.Entry
 	userCnt    *widget.Label
@@ -74,6 +77,8 @@ func (s *ServerState) uiAddLog(msg string) {
 		prev = prev[len(prev)-10000:]
 	}
 	s.logEntry.SetText(prev + fmt.Sprintf("[%s] %s\n", t, msg))
+	s.logEntry.CursorRow = 999999 // auto-scroll to bottom
+	s.logEntry.Refresh()
 }
 
 // updateStatusRunning sets UI to running state. Must be called from main thread or fyne.Do.
@@ -85,6 +90,8 @@ func (s *ServerState) updateStatusRunning(ctrlPort int) {
 	s.actionBtn.SetText("停止服务")
 	s.actionBtn.Importance = widget.DangerImportance
 	s.portEntry.Disable()
+	s.portMinEntry.Disable()
+	s.portMaxEntry.Disable()
 }
 
 // updateStatusStopped sets UI to stopped state.
@@ -96,6 +103,8 @@ func (s *ServerState) updateStatusStopped() {
 	s.actionBtn.SetText("启动服务")
 	s.actionBtn.Importance = widget.HighImportance
 	s.portEntry.Enable()
+	s.portMinEntry.Enable()
+	s.portMaxEntry.Enable()
 }
 
 func (s *ServerState) start() error {
@@ -117,6 +126,11 @@ func (s *ServerState) start() error {
 	// Listen on all interfaces for both IPv4 and IPv6
 	s.controlLn, err = net.Listen("tcp", fmt.Sprintf("[::]:%d", ctrlPort))
 	if err != nil {
+		if strings.Contains(err.Error(), "address already in use") ||
+			strings.Contains(err.Error(), "通常每个套接字地址") ||
+			strings.Contains(err.Error(), "Only one usage") {
+			return fmt.Errorf("端口 %d 已被占用，可能已有服务端实例在运行，请先关闭或更换端口", ctrlPort)
+		}
 		return fmt.Errorf("监听控制端口失败: %v", err)
 	}
 
@@ -124,6 +138,11 @@ func (s *ServerState) start() error {
 	s.dataLn, err = net.Listen("tcp", fmt.Sprintf("[::]:%d", dataPort))
 	if err != nil {
 		s.controlLn.Close()
+		if strings.Contains(err.Error(), "address already in use") ||
+			strings.Contains(err.Error(), "通常每个套接字地址") ||
+			strings.Contains(err.Error(), "Only one usage") {
+			return fmt.Errorf("数据端口 %d 已被占用，可能已有服务端实例在运行，请先关闭或更换端口", dataPort)
+		}
 		return fmt.Errorf("监听数据端口 %d 失败: %v", dataPort, err)
 	}
 
@@ -224,14 +243,35 @@ func (s *ServerState) handleControl(conn net.Conn) {
 	}
 }
 
+// findPortInRange finds an available TCP port within the configured range.
+func (s *ServerState) findPortInRange() (int, error) {
+	var minPort, maxPort int
+	fmt.Sscanf(s.portMinEntry.Text, "%d", &minPort)
+	fmt.Sscanf(s.portMaxEntry.Text, "%d", &maxPort)
+	if minPort <= 0 || maxPort <= 0 || minPort > maxPort {
+		return 0, fmt.Errorf("端口范围无效: %s-%s", s.portMinEntry.Text, s.portMaxEntry.Text)
+	}
+	for port := minPort; port <= maxPort; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf("[::]:%d", port))
+		if err == nil {
+			ln.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("端口范围 %d-%d 内无可用端口", minPort, maxPort)
+}
+
 func (s *ServerState) handleRegister(ctrlConn net.Conn, msg *common.Message) {
-	// Allocate a random public port
-	pubLn, err := net.Listen("tcp", "[::]:0")
+	pubPort, err := s.findPortInRange()
+	if err != nil {
+		common.WriteMsg(ctrlConn, &common.Message{Type: common.MsgError, Error: "分配公网端口失败: " + err.Error()})
+		return
+	}
+	pubLn, err := net.Listen("tcp", fmt.Sprintf("[::]:%d", pubPort))
 	if err != nil {
 		common.WriteMsg(ctrlConn, &common.Message{Type: common.MsgError, Error: "分配公网端口失败"})
 		return
 	}
-	pubPort := pubLn.Addr().(*net.TCPAddr).Port
 
 	t := &tunnelInfo{
 		ID:        msg.TunnelID,
@@ -445,6 +485,14 @@ func main() {
 	state.portEntry = widget.NewEntry()
 	state.portEntry.SetText("8888")
 
+	state.portMinEntry = widget.NewEntry()
+	state.portMinEntry.SetPlaceHolder("最小")
+	state.portMinEntry.SetText("20000")
+
+	state.portMaxEntry = widget.NewEntry()
+	state.portMaxEntry.SetPlaceHolder("最大")
+	state.portMaxEntry.SetText("30000")
+
 	state.actionBtn = widget.NewButton("启动服务", func() { state.toggleAction() })
 	state.actionBtn.Importance = widget.HighImportance
 
@@ -484,7 +532,14 @@ func main() {
 			state.statusLbl,
 		),
 		state.actionBtn,
-		widget.NewForm(widget.NewFormItem("端口", state.portEntry)),
+		widget.NewForm(
+			widget.NewFormItem("端口", state.portEntry),
+			widget.NewFormItem("公网端口范围", container.NewHBox(
+				state.portMinEntry,
+				widget.NewLabel("  —  "),
+				state.portMaxEntry,
+			)),
+		),
 	)
 
 	addrBar := container.NewHBox(state.addrLbl)

@@ -68,6 +68,8 @@ func (s *ClientState) uiAddLog(msg string) {
 		prev = prev[len(prev)-10000:]
 	}
 	s.logEntry.SetText(prev + fmt.Sprintf("[%s] %s\n", t, msg))
+	s.logEntry.CursorRow = 999999 // auto-scroll to bottom
+	s.logEntry.Refresh()
 }
 
 // updateStatusConnected sets UI to connected state. Must be called from main thread or fyne.Do.
