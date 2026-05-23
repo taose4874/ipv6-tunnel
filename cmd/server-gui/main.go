@@ -385,28 +385,11 @@ func (s *ServerState) refreshUserList() {
 			ConnID: t.ID,
 		})
 
-		// Add per-connection entries
+		// Count data connections for this tunnel
 		t.mu.Lock()
-		for id, conn := range t.Conns {
-			addr := conn.RemoteAddr().String()
-			host, _, err := net.SplitHostPort(addr)
-			if err == nil {
-				addr = host
-			}
-			if ip := net.ParseIP(addr); ip != nil && ip.To4() == nil {
-				if ip.IsLoopback() {
-					addr = "本地IPv6"
-				} else {
-					addr = ip.String()
-				}
-			}
-			entries = append(entries, userEntry{
-				Addr:   addr,
-				Port:   t.PubPort,
-				ConnID: id,
-			})
-		}
+		ds := len(t.Conns)
 		t.mu.Unlock()
+		_ = ds // 数据连接数已计入，可用于后续扩展显示
 	}
 
 	s.userData = entries
