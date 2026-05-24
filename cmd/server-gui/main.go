@@ -568,10 +568,13 @@ func main() {
 			state.statusLbl,
 		),
 		state.actionBtn,
-		container.NewVBox(
-			container.NewBorder(nil, nil, widget.NewLabel("端口"), nil, container.NewHBox(state.portEntry)),
-			container.NewBorder(nil, nil, widget.NewLabel("端口范围"), nil,
-				container.NewBorder(nil, nil, state.portMinEntry, state.portMaxEntry, widget.NewLabel(" — "))),
+		widget.NewForm(
+			widget.NewFormItem("端口", state.portEntry),
+			widget.NewFormItem("端口范围", container.NewHBox(
+				state.portMinEntry,
+				widget.NewLabel(" — "),
+				state.portMaxEntry,
+			)),
 		),
 	)
 
