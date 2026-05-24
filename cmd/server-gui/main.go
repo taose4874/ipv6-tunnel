@@ -570,11 +570,7 @@ func main() {
 		state.actionBtn,
 		widget.NewForm(
 			widget.NewFormItem("端口", state.portEntry),
-			widget.NewFormItem("端口范围", container.NewHBox(
-				state.portMinEntry,
-				widget.NewLabel(" — "),
-				state.portMaxEntry,
-			)),
+			widget.NewFormItem("端口范围", container.NewBorder(nil, nil, state.portMinEntry, state.portMaxEntry, widget.NewLabel(" — "))),
 		),
 	)
 
