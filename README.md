@@ -18,6 +18,16 @@
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.0.13 | 2026-05-24 | GridWithColumns(2) 让端口范围两个输入框等宽均分 |
+| v1.0.12 | 2026-05-24 | 端口范围输入框加宽，使用 Border 布局让左右框均分空间 |
+| v1.0.11 | 2026-05-24 | 修复服务端用户列表显示空白，每行添加复制按钮；优化端口输入框布局 |
+| v1.0.10 | 2026-05-24 | 修复服务端用户列表显示空白，移除与 Fyne List 不兼容的 tappableContainer |
+| v1.0.9 | 2026-05-24 | 修复 logSection 未使用变量导致日志标题不显示 |
+| v1.0.8 | 2026-05-24 | 日志标题固定不滚动，客户端公网地址标签前置 |
+| v1.0.7 | 2026-05-24 | 服务端停止和客户端断开连接日志改为红色，用户列表支持右键复制地址 |
+| v1.0.6 | 2026-05-24 | 修复客户端连接后公网地址显示为 `localhost:端口` 问题 |
+| v1.0.5 | 2026-05-24 | 修复客户端连接后公网地址显示为 `localhost:端口` 问题 |
+| v1.0.4 | 2026-05-24 | 修复客户端连接后公网地址显示为 `localhost:端口` 问题 |
 | v1.0.3 | 2026-05-24 | 修复原生 IPv6 地址连接失败（自动加方括号） |
 | v1.0.2 | 2026-05-24 | 添加应用图标（霓虹扳手） |
 | v1.0.1 | 2026-05-24 | 修复服务端用户列表重复显示 |
@@ -105,14 +115,16 @@ intranet-pen/
 
 <table>
 <tr>
-<td align="center"><b>服务端运行中</b></td>
+<td align="center"><b>服务端主控台</b></td>
+<td align="center"><b>客户端连接页</b></td>
 <td align="center"><b>客户端已连接</b></td>
-<td align="center"><b>客户端未连接</b></td>
+<td align="center"><b>服务端运行中</b></td>
 </tr>
 <tr>
-<td><img src="docs/images/server-running.png" width="240" /></td>
-<td><img src="docs/images/client-connected.png" width="240" /></td>
-<td><img src="docs/images/client-disconnected.png" width="240" /></td>
+<td><img src="docs/images/server-console.png" width="200" /></td>
+<td><img src="docs/images/client-connect.png" width="200" /></td>
+<td><img src="docs/images/client-connected.png" width="200" /></td>
+<td><img src="docs/images/server-running.png" width="200" /></td>
 </tr>
 </table>
 
