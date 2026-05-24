@@ -645,7 +645,7 @@ func main() {
 				widget.NewSeparator(),
 			),
 			nil, nil, nil,
-			state.logScroll,
+			logSection,
 		),
 	)
 	w.SetContent(content)
