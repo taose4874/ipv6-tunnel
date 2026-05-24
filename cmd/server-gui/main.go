@@ -628,12 +628,12 @@ func main() {
 		widget.NewLabelWithStyle("日志", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		container.NewHBox(copyLogBtn, clearLogBtn),
 	)
+	state.logScroll = container.NewScroll(state.logRich)
 	logSection := container.NewBorder(
 		container.NewVBox(logHeader, widget.NewSeparator()),
 		nil, nil, nil,
-		state.logRich,
+		state.logScroll,
 	)
-	state.logScroll = container.NewScroll(logSection)
 	state.logScroll.SetMinSize(fyne.NewSize(0, 100))
 
 	content := container.NewBorder(

@@ -496,12 +496,15 @@ func main() {
 		w.Clipboard().SetContent(cstate.infoEntry.Text)
 	})
 
-	infoRow := container.NewBorder(nil, nil, nil, cstate.copyBtn, cstate.infoEntry)
-
-	cstate.infoBox = container.NewVBox(
+	addrHeader := container.NewBorder(
+		nil, nil,
 		widget.NewLabelWithStyle("公网地址", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		cstate.copyBtn,
+		cstate.infoEntry,
+	)
+	cstate.infoBox = container.NewVBox(
+		addrHeader,
 		widget.NewSeparator(),
-		container.NewPadded(infoRow),
 	)
 	cstate.infoBox.Hide()
 
@@ -528,12 +531,12 @@ func main() {
 		widget.NewLabelWithStyle("日志", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		container.NewHBox(copyLogBtn, clearLogBtn),
 	)
+	cstate.logScroll = container.NewScroll(cstate.logRich)
 	logSection := container.NewBorder(
 		container.NewVBox(logHeader, widget.NewSeparator()),
 		nil, nil, nil,
-		cstate.logRich,
+		cstate.logScroll,
 	)
-	cstate.logScroll = container.NewScroll(logSection)
 	cstate.logScroll.SetMinSize(fyne.NewSize(0, 100))
 
 	// Top status bar
