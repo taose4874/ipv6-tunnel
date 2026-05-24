@@ -26,6 +26,22 @@ var (
 	colorGray  = color.NRGBA{R: 0x9E, G: 0x9E, B: 0x9E, A: 0xFF}
 )
 
+type LogLevel int
+
+const (
+	LogInfo LogLevel = iota
+	LogSuccess
+	LogWarn
+	LogError
+)
+
+var levelColorNames = map[LogLevel]fyne.ThemeColorName{
+	LogInfo:    "log-info",
+	LogSuccess: "log-success",
+	LogWarn:    "log-warn",
+	LogError:   "log-error",
+}
+
 // tunnelInfo represents a registered tunnel with its public listener and connections.
 type tunnelInfo struct {
 	ID        string
@@ -61,7 +77,8 @@ type ServerState struct {
 	portMaxEntry *widget.Entry
 	userList    *widget.List
 	userData   []userEntry
-	logEntry   *widget.Entry
+	logRich    *widget.RichText
+	logScroll  *container.Scroll
 	userCnt    *widget.Label
 }
 
@@ -70,16 +87,22 @@ var state = &ServerState{
 	userData: make([]userEntry, 0),
 }
 
-// uiAddLog safely appends log text from any goroutine (uses fyne.Do for thread safety).
-func (s *ServerState) uiAddLog(msg string) {
+// uiAddLog appends a color-coded log line to the RichText widget.
+func (s *ServerState) uiAddLog(level LogLevel, msg string) {
 	t := time.Now().Format("15:04:05")
-	prev := s.logEntry.Text
-	if len(prev) > 20000 {
-		prev = prev[len(prev)-10000:]
+	seg := &widget.TextSegment{
+		Style: widget.RichTextStyle{
+			ColorName: levelColorNames[level],
+			TextStyle: fyne.TextStyle{Monospace: true},
+		},
+		Text: fmt.Sprintf("[%s] %s\n", t, msg),
 	}
-	s.logEntry.SetText(prev + fmt.Sprintf("[%s] %s\n", t, msg))
-	s.logEntry.CursorRow = 999999 // auto-scroll to bottom
-	s.logEntry.Refresh()
+	s.logRich.Segments = append(s.logRich.Segments, seg)
+	if len(s.logRich.Segments) > 500 {
+		s.logRich.Segments = s.logRich.Segments[len(s.logRich.Segments)-300:]
+	}
+	s.logRich.Refresh()
+	s.logScroll.ScrollToBottom()
 }
 
 // updateStatusRunning sets UI to running state. Must be called from main thread or fyne.Do.
@@ -221,7 +244,7 @@ func (s *ServerState) stop() {
 func (s *ServerState) handleControl(conn net.Conn) {
 	defer conn.Close()
 
-	s.uiAddLog(fmt.Sprintf("客户端连接: %s", conn.RemoteAddr()))
+	s.uiAddLog(LogInfo, fmt.Sprintf("客户端连接: %s", conn.RemoteAddr()))
 
 	for {
 		// Set read deadline to detect stale connections (90s = 3 ping intervals)
@@ -229,7 +252,7 @@ func (s *ServerState) handleControl(conn net.Conn) {
 
 		msg, err := common.ReadMsg(conn)
 		if err != nil {
-			s.uiAddLog(fmt.Sprintf("客户端断开: %s", conn.RemoteAddr()))
+			s.uiAddLog(LogWarn, fmt.Sprintf("客户端断开: %s", conn.RemoteAddr()))
 			s.removeClientTunnels(conn)
 			s.refreshUserList()
 			return
@@ -296,7 +319,7 @@ func (s *ServerState) handleRegister(ctrlConn net.Conn, msg *common.Message) {
 		TunnelID: msg.TunnelID,
 		PubPort:  pubPort,
 	})
-	s.uiAddLog(fmt.Sprintf("隧道注册: %s → 公网:%d (内网 %s:%d)", msg.TunnelID, pubPort, msg.LocalHost, msg.LocalPort))
+	s.uiAddLog(LogSuccess, fmt.Sprintf("隧道注册: %s → 公网:%d (内网 %s:%d)", msg.TunnelID, pubPort, msg.LocalHost, msg.LocalPort))
 
 	go s.acceptPublic(t)
 }
@@ -321,7 +344,7 @@ func (s *ServerState) acceptPublic(t *tunnelInfo) {
 			TunnelID: t.ID,
 			ConnID:   connID,
 		})
-		s.uiAddLog(fmt.Sprintf("新连接: %s → 隧道 %s", extConn.RemoteAddr(), t.ID))
+		s.uiAddLog(LogSuccess, fmt.Sprintf("新连接: %s → 隧道 %s", extConn.RemoteAddr(), t.ID))
 		s.refreshUserList()
 	}
 }
@@ -399,7 +422,7 @@ func (s *ServerState) removeClientTunnels(ctrlConn net.Conn) {
 			}
 			t.mu.Unlock()
 			delete(s.tunnels, id)
-			s.uiAddLog(fmt.Sprintf("隧道已移除: %s", id))
+			s.uiAddLog(LogWarn, fmt.Sprintf("隧道已移除: %s", id))
 		}
 	}
 }
@@ -451,7 +474,7 @@ func (s *ServerState) refreshUserList() {
 func (s *ServerState) toggleAction() {
 	if s.running {
 		s.stop()
-		s.uiAddLog("服务已停止")
+		s.uiAddLog(LogInfo, "服务已停止")
 		s.updateStatusStopped()
 	} else {
 		if err := s.start(); err != nil {
@@ -467,7 +490,7 @@ func (s *ServerState) toggleAction() {
 		}
 
 		s.updateStatusRunning(ctrlPort)
-		s.uiAddLog(fmt.Sprintf("服务已启动 (控制端口 %d, 数据端口 %d)", ctrlPort, ctrlPort+1))
+		s.uiAddLog(LogSuccess, fmt.Sprintf("服务已启动 (控制端口 %d, 数据端口 %d)", ctrlPort, ctrlPort+1))
 	}
 }
 
@@ -525,10 +548,7 @@ func main() {
 		},
 	)
 
-	state.logEntry = widget.NewEntry()
-	state.logEntry.MultiLine = true
-	state.logEntry.Wrapping = fyne.TextWrapOff
-	state.logEntry.SetPlaceHolder("日志输出...")
+	state.logRich = widget.NewRichText()
 
 	// Top bar
 	topBar := container.NewBorder(
@@ -569,15 +589,32 @@ func main() {
 		state.userList,
 	)
 
-	// Log section
-	logSection := container.NewBorder(
+	// Log section with RichText, Copy and Clear buttons
+	copyLogBtn := widget.NewButton("复制", func() {
+		var buf strings.Builder
+		for _, s := range state.logRich.Segments {
+			if ts, ok := s.(*widget.TextSegment); ok {
+				buf.WriteString(ts.Text)
+			}
+		}
+		w.Clipboard().SetContent(buf.String())
+	})
+	clearLogBtn := widget.NewButton("清空", func() {
+		state.logRich.Segments = nil
+		state.logRich.Refresh()
+	})
+	logHeader := container.NewBorder(
+		nil, nil,
 		widget.NewLabelWithStyle("日志", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		nil, nil, nil,
-		state.logEntry,
+		container.NewHBox(copyLogBtn, clearLogBtn),
 	)
-
-	logScroll := container.NewScroll(logSection)
-	logScroll.SetMinSize(fyne.NewSize(0, 100))
+	logSection := container.NewBorder(
+		container.NewVBox(logHeader, widget.NewSeparator()),
+		nil, nil, nil,
+		state.logRich,
+	)
+	state.logScroll = container.NewScroll(logSection)
+	state.logScroll.SetMinSize(fyne.NewSize(0, 100))
 
 	content := container.NewBorder(
 		topBox,
@@ -588,7 +625,7 @@ func main() {
 				widget.NewSeparator(),
 			),
 			nil, nil, nil,
-			logScroll,
+			state.logScroll,
 		),
 	)
 	w.SetContent(content)

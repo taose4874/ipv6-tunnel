@@ -19,6 +19,14 @@ func (t bigTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) col
 		return color.Gray{Y: 0x88}
 	case theme.ColorNameDisabled:
 		return color.Black
+	case "log-success":
+		return color.NRGBA{R: 0x4C, G: 0xAF, B: 0x50, A: 0xFF}
+	case "log-warn":
+		return color.NRGBA{R: 0xFF, G: 0x98, B: 0x00, A: 0xFF}
+	case "log-error":
+		return color.NRGBA{R: 0xF4, G: 0x43, B: 0x36, A: 0xFF}
+	case "log-info":
+		return color.NRGBA{R: 0xDD, G: 0xDD, B: 0xDD, A: 0xFF}
 	default:
 		return theme.DefaultTheme().Color(name, variant)
 	}

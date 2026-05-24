@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,22 @@ var (
 	colorGreen = color.NRGBA{R: 0x4C, G: 0xAF, B: 0x50, A: 0xFF}
 	colorGray  = color.NRGBA{R: 0x9E, G: 0x9E, B: 0x9E, A: 0xFF}
 )
+
+type LogLevel int
+
+const (
+	LogInfo LogLevel = iota
+	LogSuccess
+	LogWarn
+	LogError
+)
+
+var levelColorNames = map[LogLevel]fyne.ThemeColorName{
+	LogInfo:    "log-info",
+	LogSuccess: "log-success",
+	LogWarn:    "log-warn",
+	LogError:   "log-error",
+}
 
 type ClientState struct {
 	mu               sync.Mutex
@@ -48,7 +65,8 @@ type ClientState struct {
 	infoEntry  *widget.Entry
 	copyBtn    *widget.Button
 	actionBtn  *widget.Button
-	logEntry   *widget.Entry
+	logRich    *widget.RichText
+	logScroll  *container.Scroll
 	addrEntry  *widget.Entry
 	portEntry  *widget.Entry
 	localEntry *widget.Entry
@@ -60,16 +78,22 @@ type ClientState struct {
 
 var cstate *ClientState
 
-// uiAddLog safely appends log text from any goroutine (uses fyne.Do for thread safety).
-func (s *ClientState) uiAddLog(msg string) {
+// uiAddLog appends a color-coded log line to the RichText widget.
+func (s *ClientState) uiAddLog(level LogLevel, msg string) {
 	t := time.Now().Format("15:04:05")
-	prev := s.logEntry.Text
-	if len(prev) > 20000 {
-		prev = prev[len(prev)-10000:]
+	seg := &widget.TextSegment{
+		Style: widget.RichTextStyle{
+			ColorName: levelColorNames[level],
+			TextStyle: fyne.TextStyle{Monospace: true},
+		},
+		Text: fmt.Sprintf("[%s] %s\n", t, msg),
 	}
-	s.logEntry.SetText(prev + fmt.Sprintf("[%s] %s\n", t, msg))
-	s.logEntry.CursorRow = 999999 // auto-scroll to bottom
-	s.logEntry.Refresh()
+	s.logRich.Segments = append(s.logRich.Segments, seg)
+	if len(s.logRich.Segments) > 500 {
+		s.logRich.Segments = s.logRich.Segments[len(s.logRich.Segments)-300:]
+	}
+	s.logRich.Refresh()
+	s.logScroll.ScrollToBottom()
 }
 
 // updateStatusConnected sets UI to connected state. Must be called from main thread or fyne.Do.
@@ -254,7 +278,7 @@ func (s *ClientState) readLoop() {
 			}
 
 			// Unexpected disconnect — clean up and start reconnect loop
-			s.uiAddLog("与服务端断开连接，3秒后自动重连...")
+			s.uiAddLog(LogWarn, "与服务端断开连接，3秒后自动重连...")
 			s.doCleanup()
 			s.reconnectLoop()
 			return
@@ -281,13 +305,13 @@ func (s *ClientState) reconnectLoop() {
 		}
 		s.mu.Unlock()
 
-		s.uiAddLog("正在尝试重连...")
+		s.uiAddLog(LogInfo, "正在尝试重连...")
 		if err := s.doConnect(); err != nil {
-			s.uiAddLog(fmt.Sprintf("重连失败: %v", err))
+			s.uiAddLog(LogError, fmt.Sprintf("重连失败: %v", err))
 			continue
 		}
 
-		s.uiAddLog(fmt.Sprintf("重连成功，隧道已恢复 → 公网端口 %d", s.pubPort))
+		s.uiAddLog(LogSuccess, fmt.Sprintf("重连成功，隧道已恢复 → 公网端口 %d", s.pubPort))
 		s.updateStatusConnected()
 		return
 	}
@@ -331,7 +355,7 @@ func (s *ClientState) disconnect() {
 	}
 
 	s.doCleanup()
-	s.uiAddLog("已手动断开连接")
+	s.uiAddLog(LogInfo, "已手动断开连接")
 
 	s.updateStatusDisconnected()
 }
@@ -346,7 +370,7 @@ func (s *ClientState) handleNewConn(msg *common.Message) {
 	// Connect to local service with timeout
 	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", lp), 5*time.Second)
 	if err != nil {
-		s.uiAddLog(fmt.Sprintf("连接本地服务失败: %v", err))
+		s.uiAddLog(LogError, fmt.Sprintf("连接本地服务失败: %v", err))
 		return
 	}
 
@@ -354,7 +378,7 @@ func (s *ClientState) handleNewConn(msg *common.Message) {
 	dataConn, err := net.DialTimeout("tcp", da, 5*time.Second)
 	if err != nil {
 		localConn.Close()
-		s.uiAddLog(fmt.Sprintf("连接数据通道失败: %v", err))
+		s.uiAddLog(LogError, fmt.Sprintf("连接数据通道失败: %v", err))
 		return
 	}
 
@@ -366,7 +390,7 @@ func (s *ClientState) handleNewConn(msg *common.Message) {
 	}); err != nil {
 		localConn.Close()
 		dataConn.Close()
-		s.uiAddLog(fmt.Sprintf("发送连接就绪信号失败: %v", err))
+		s.uiAddLog(LogError, fmt.Sprintf("发送连接就绪信号失败: %v", err))
 		return
 	}
 
@@ -409,7 +433,7 @@ func (s *ClientState) toggleAction() {
 			dialog.ShowError(err, s.win)
 			return
 		}
-		s.uiAddLog(fmt.Sprintf("隧道就绪 → 公网端口 %d", s.pubPort))
+		s.uiAddLog(LogSuccess, fmt.Sprintf("隧道就绪 → 公网端口 %d", s.pubPort))
 		s.updateStatusConnected()
 	}
 }
@@ -484,17 +508,33 @@ func main() {
 	// Section: settings or info (swap when connected)
 	midSection := container.NewMax(cstate.settingBox, cstate.infoBox)
 
-	// Log
-	cstate.logEntry = widget.NewEntry()
-	cstate.logEntry.MultiLine = true
-	cstate.logEntry.Wrapping = fyne.TextWrapOff
-	cstate.logEntry.SetPlaceHolder("日志输出...")
-
-	logSection := container.NewBorder(
+	// Log section with RichText, Copy and Clear buttons
+	cstate.logRich = widget.NewRichText()
+	copyLogBtn := widget.NewButton("复制", func() {
+		var buf strings.Builder
+		for _, s := range cstate.logRich.Segments {
+			if ts, ok := s.(*widget.TextSegment); ok {
+				buf.WriteString(ts.Text)
+			}
+		}
+		w.Clipboard().SetContent(buf.String())
+	})
+	clearLogBtn := widget.NewButton("清空", func() {
+		cstate.logRich.Segments = nil
+		cstate.logRich.Refresh()
+	})
+	logHeader := container.NewBorder(
+		nil, nil,
 		widget.NewLabelWithStyle("日志", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		nil, nil, nil,
-		cstate.logEntry,
+		container.NewHBox(copyLogBtn, clearLogBtn),
 	)
+	logSection := container.NewBorder(
+		container.NewVBox(logHeader, widget.NewSeparator()),
+		nil, nil, nil,
+		cstate.logRich,
+	)
+	cstate.logScroll = container.NewScroll(logSection)
+	cstate.logScroll.SetMinSize(fyne.NewSize(0, 100))
 
 	// Top status bar
 	topBar := container.NewBorder(
@@ -511,9 +551,6 @@ func main() {
 		widget.NewSeparator(),
 	)
 
-	logScroll := container.NewScroll(logSection)
-	logScroll.SetMinSize(fyne.NewSize(0, 100))
-
 	content := container.NewBorder(
 		topBox,
 		nil, nil, nil,
@@ -523,7 +560,7 @@ func main() {
 				widget.NewSeparator(),
 			),
 			nil, nil, nil,
-			logScroll,
+			cstate.logScroll,
 		),
 	)
 	w.SetContent(content)
