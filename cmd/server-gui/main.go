@@ -533,27 +533,30 @@ func main() {
 		func() fyne.CanvasObject {
 			addr := widget.NewLabel("address")
 			info := widget.NewLabel("info")
-			return container.NewVBox(addr, info)
+			btn := widget.NewButton("复制", nil)
+			btn.Importance = widget.LowImportance
+			return container.NewBorder(nil, nil, nil, btn, container.NewVBox(addr, info))
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			if id < len(state.userData) {
 				u := state.userData[id]
 				c := obj.(*fyne.Container)
-				addrLbl := c.Objects[0].(*widget.Label)
-				infoLbl := c.Objects[1].(*widget.Label)
+				inner := c.Objects[0].(*fyne.Container) // VBox
+				addrLbl := inner.Objects[0].(*widget.Label)
+				infoLbl := inner.Objects[1].(*widget.Label)
 				addrLbl.SetText(u.Addr)
 				addrLbl.TextStyle = fyne.TextStyle{Bold: true}
 				infoLbl.SetText(fmt.Sprintf("公网端口 %d  |  %s", u.Port, time.Now().Format("15:04:05")))
+				btn := c.Objects[1].(*widget.Button)
+				addr := u.Addr
+				btn.OnTapped = func() {
+					state.win.Clipboard().SetContent(addr)
+					state.uiAddLog(LogInfo, fmt.Sprintf("已复制地址: %s", addr))
+				}
 			}
 		},
 	)
-	state.userList.OnSelected = func(id widget.ListItemID) {
-		if id < len(state.userData) {
-			u := state.userData[id]
-			state.win.Clipboard().SetContent(u.Addr)
-			state.uiAddLog(LogInfo, fmt.Sprintf("已复制地址: %s", u.Addr))
-		}
-	}
+	state.userList.OnSelected = nil
 
 	state.logRich = widget.NewRichText()
 
