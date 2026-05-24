@@ -183,12 +183,13 @@ func (s *ClientState) doConnect() error {
 		return fmt.Errorf("连接服务端失败: %v", err)
 	}
 
-	// 2. Send register message
+	// 2. Send register message with PSK
 	if err := common.WriteMsg(ctrlConn, &common.Message{
 		Type:      common.MsgRegister,
 		TunnelID:  "default",
 		LocalHost: "127.0.0.1",
 		LocalPort: localPort,
+		PSK:       common.PreSharedKey,
 	}); err != nil {
 		ctrlConn.Close()
 		return fmt.Errorf("注册失败: %v", err)
@@ -205,6 +206,9 @@ func (s *ClientState) doConnect() error {
 
 	if msg.Type == common.MsgError {
 		ctrlConn.Close()
+		if strings.Contains(msg.Error, "预共享密钥") {
+			s.uiAddLog(LogError, "认证失败：预共享密钥不匹配")
+		}
 		return fmt.Errorf("%s", msg.Error)
 	}
 

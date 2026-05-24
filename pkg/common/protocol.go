@@ -6,6 +6,10 @@ import (
 	"io"
 )
 
+// PreSharedKey 预共享密钥，用于客户端与服务端之间的认证。
+// 只有持有相同密钥的客户端才能注册到服务端。
+const PreSharedKey = "a7f3b2c9d1e8f4a6b0c2d3e5f7a9b1c3"
+
 // Message 控制消息
 type Message struct {
 	Type      string `json:"type"`
@@ -15,6 +19,7 @@ type Message struct {
 	LocalPort int    `json:"local_port,omitempty"`
 	PubPort   int    `json:"pub_port,omitempty"`
 	Error     string `json:"error,omitempty"`
+	PSK       string `json:"psk,omitempty"`
 }
 
 // 消息类型常量

@@ -289,6 +289,13 @@ func (s *ServerState) findPortInRange() (int, error) {
 }
 
 func (s *ServerState) handleRegister(ctrlConn net.Conn, msg *common.Message) {
+	// 校验预共享密钥
+	if msg.PSK != common.PreSharedKey {
+		s.uiAddLog(LogError, fmt.Sprintf("认证失败：预共享密钥不匹配 (客户端: %s)", ctrlConn.RemoteAddr()))
+		common.WriteMsg(ctrlConn, &common.Message{Type: common.MsgError, Error: "认证失败：预共享密钥不匹配"})
+		return
+	}
+
 	pubPort, err := s.findPortInRange()
 	if err != nil {
 		common.WriteMsg(ctrlConn, &common.Message{Type: common.MsgError, Error: "分配公网端口失败: " + err.Error()})
