@@ -21,6 +21,18 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// tappableContainer wraps a Fyne container and supports right-click (TappedSecondary).
+type tappableContainer struct {
+	*fyne.Container
+	onTappedSecondary func(*fyne.PointEvent)
+}
+
+func (t *tappableContainer) TappedSecondary(pe *fyne.PointEvent) {
+	if t.onTappedSecondary != nil {
+		t.onTappedSecondary(pe)
+	}
+}
+
 var (
 	colorGreen = color.NRGBA{R: 0x4C, G: 0xAF, B: 0x50, A: 0xFF}
 	colorGray  = color.NRGBA{R: 0x9E, G: 0x9E, B: 0x9E, A: 0xFF}
@@ -474,7 +486,7 @@ func (s *ServerState) refreshUserList() {
 func (s *ServerState) toggleAction() {
 	if s.running {
 		s.stop()
-		s.uiAddLog(LogInfo, "服务已停止")
+		s.uiAddLog(LogError, "服务已停止")
 		s.updateStatusStopped()
 	} else {
 		if err := s.start(); err != nil {
@@ -533,17 +545,25 @@ func main() {
 		func() fyne.CanvasObject {
 			addr := widget.NewLabel("address")
 			info := widget.NewLabel("info")
-			return container.NewVBox(addr, info)
+			return &tappableContainer{Container: container.NewVBox(addr, info)}
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			if id < len(state.userData) {
 				u := state.userData[id]
-				box := obj.(*fyne.Container)
-				addrLbl := box.Objects[0].(*widget.Label)
-				infoLbl := box.Objects[1].(*widget.Label)
+				tc := obj.(*tappableContainer)
+				addrLbl := tc.Objects[0].(*widget.Label)
+				infoLbl := tc.Objects[1].(*widget.Label)
 				addrLbl.SetText(u.Addr)
 				addrLbl.TextStyle = fyne.TextStyle{Bold: true}
 				infoLbl.SetText(fmt.Sprintf("公网端口 %d  |  %s", u.Port, time.Now().Format("15:04:05")))
+				tc.onTappedSecondary = func(pe *fyne.PointEvent) {
+					menu := fyne.NewMenu("",
+						fyne.NewMenuItem("复制地址", func() {
+							state.win.Clipboard().SetContent(u.Addr)
+						}),
+					)
+					widget.ShowPopUpMenuAtPosition(menu, state.win.Canvas(), pe.AbsolutePosition)
+				}
 			}
 		},
 	)

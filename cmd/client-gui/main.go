@@ -355,7 +355,7 @@ func (s *ClientState) disconnect() {
 	}
 
 	s.doCleanup()
-	s.uiAddLog(LogInfo, "已手动断开连接")
+	s.uiAddLog(LogError, "已手动断开连接")
 
 	s.updateStatusDisconnected()
 }
