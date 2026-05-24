@@ -39,42 +39,9 @@
 
 ## 快速开始
 
-### 1. 下载
-
 从 [Releases](https://github.com/taose4874/ipv6-tunnel/releases) 下载最新版：
 - `IPv6服务端.exe`：运行在公网服务器
 - `IPv6客户端.exe`：运行在内网设备
-
-### 2. 编译
-
-确保已安装 Go 1.21+ 和 MinGW-w64 GCC：
-
-```bash
-# 服务端
-cd cmd/server-gui
-go build -ldflags="-H windowsgui" -o IPv6服务端.exe
-
-# 客户端
-cd cmd/client-gui
-go build -ldflags="-H windowsgui" -o IPv6客户端.exe
-```
-
-### 3. 运行服务端
-
-1. 启动 `IPv6服务端.exe`
-2. 设置监听端口（默认 8888）
-3. 点击「启动服务」
-
-### 4. 运行客户端
-
-1. 启动 `IPv6客户端.exe`
-2. 填写服务端地址（IPv4 或 IPv6 均可，IPv6 无需手动加方括号）
-3. 设置本地服务地址（如 `127.0.0.1:80`）
-4. 点击「连接」
-
-### 5. 访问内网服务
-
-外部客户端通过 `服务端IP:分配的公网端口` 即可访问内网服务。
 
 ## 项目结构
 
