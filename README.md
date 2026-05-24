@@ -103,17 +103,18 @@ intranet-pen/
 
 ## UI 界面
 
-### 服务端运行中
-
-![服务端运行中](docs/images/server-running.png)
-
-### 客户端已连接
-
-![客户端已连接](docs/images/client-connected.png)
-
-### 客户端未连接
-
-![客户端未连接](docs/images/client-disconnected.png)
+<table>
+<tr>
+<td align="center"><b>服务端运行中</b></td>
+<td align="center"><b>客户端已连接</b></td>
+<td align="center"><b>客户端未连接</b></td>
+</tr>
+<tr>
+<td><img src="docs/images/server-running.png" width="240" /></td>
+<td><img src="docs/images/client-connected.png" width="240" /></td>
+<td><img src="docs/images/client-disconnected.png" width="240" /></td>
+</tr>
+</table>
 
 ## 技术栈
 
